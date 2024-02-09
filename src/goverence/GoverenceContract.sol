@@ -51,6 +51,7 @@ contract GoverenceContract is GoverenceStorage, Ownable, ReentrancyGuard {
     function verifyPendingProposal(uint256 _proposalId, bool _accept) external nonReentrant onlyOwner {
         // between the proposal proposed time and voting start time the pending proposal is verified
         // if time if gone then the proposal is automatically canceled
+        require(!s_isAnyVoting, "Other proposal is in pending");
         require(s_proposalState[_proposalId] == State.Pending, "Goverence contract : Proposal was not in pending list");
 
         Proposal memory m_proposal = s_proposals[_proposalId];
