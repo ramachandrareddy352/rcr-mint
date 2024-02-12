@@ -238,9 +238,9 @@ contract GoverenceContract is GoverenceStorage, Ownable, ReentrancyGuard {
         emit ProposalQueued(_proposalId, m_timeStamp);
     }
 
-    function executeProposal(uint256 _proposalId) external nonReentrant onlyOwner {
+    function executeProposal(uint256 _proposalId, bool _execute) external nonReentrant onlyOwner {
         // here we verify the queued proposals and there votings and decide to execute or revoke the proposal
-        if (_verifyQueuedProposal(_proposalId)) {
+        if (_verifyQueuedProposal(_proposalId) && _execute) {
             s_proposalState[_proposalId] = State.Executed;
             s_proposals[_proposalId].executedTimeStamp = block.timestamp;
             s_proposals[_proposalId].executed = true;
