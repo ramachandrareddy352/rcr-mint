@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IERC20} from "../interfaces/IERC20.sol";
-import {ITimeLock} from "../interfaces/ITimeLock.sol";
-import {IGoverenceToken} from "../interfaces/IGoverenceToken.sol";
-import {GoverenceStorage} from "./GoverenceStorage.sol";
+import { Ownable } from "../utils/Ownable.sol";
+import { ReentrancyGuard } from "../utils/ReentrancyGuard.sol";
+import { IERC20 } from "../interfaces/IERC20.sol";
+import { ITimeLock } from "../interfaces/goverence/ITimeLock.sol";
+import { IGoverenceToken } from "../interfaces/goverence/IGoverenceToken.sol";
+import { GoverenceStorage} from "./GoverenceStorage.sol";
 
 /*
 => Owner is the deployer, he can only verify the proposal and execute/cancel them and call emergency execution.
@@ -51,7 +51,7 @@ contract GoverenceContract is GoverenceStorage, Ownable, ReentrancyGuard {
     function verifyPendingProposal(uint256 _proposalId, bool _accept) external nonReentrant onlyOwner {
         // between the proposal proposed time and voting start time the pending proposal is verified
         // if time if gone then the proposal is automatically canceled
-        require(!s_isAnyVoting, "Other proposal is in pending");
+        require(!s_isAnyVoting, "Goverence contract : Other proposal is in pending");
         require(s_proposalState[_proposalId] == State.Pending, "Goverence contract : Proposal was not in pending list");
 
         Proposal memory m_proposal = s_proposals[_proposalId];

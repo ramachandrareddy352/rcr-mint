@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable} from "../utils//Ownable.sol";
 
 /*
 Time lock saves the progress of every step of proposal execution, if any hack is done time lock re-verify the proposal stages
@@ -29,7 +29,7 @@ contract TimeLock is Ownable {
     mapping(uint256 proposalId => State) public s_transactions;
 
     modifier isGoverence() {
-        require(_checkGoverence(msg.sender), "Time lock : Invalid goverence call");
+        _checkGoverence(msg.sender);
         _;
     }
 
@@ -39,8 +39,8 @@ contract TimeLock is Ownable {
         s_goverenceContract = _goverenceContract;
     }
 
-    function _checkGoverence(address _account) private view returns (bool) {
-        return _account == s_goverenceContract;
+    function _checkGoverence(address _account) private view {
+        require(_account == s_goverenceContract, "Time lock : Invalid goverence call");
     }
 
     function setNewGovereneContract(address _newGoverenceContract) external onlyOwner {
@@ -53,7 +53,7 @@ contract TimeLock is Ownable {
     }
 
     function _revokeAll() private {
-        for (uint256 i = 0; i < s_lastProposalId;) {
+        for (uint256 i = 0; i < s_lastProposalId; ) {
             s_transactions[i] = State.Default;
             unchecked {
                 i = i + 1;

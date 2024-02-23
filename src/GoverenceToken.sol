@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Pausable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
-import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {Pausable} from "./utils/Pausable.sol";
+import {ERC20Permit, ERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {AccessControl} from "./utils/AccessControl.sol";
 
-contract GoverenceToken is ERC20, ERC20Pausable, ERC20Permit, AccessControl {
+contract GoverenceToken is ERC20, Pausable, ERC20Permit, AccessControl {
     bytes32 public constant GOVERENCE_CONTRACT_ROLE = keccak256("GOVERENCE_CONTRACT_ROLE"); // goverence contract
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE"); // token factory
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE"); // token factory

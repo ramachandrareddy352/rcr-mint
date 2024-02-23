@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity =0.8.20;
+pragma solidity ^0.8.20;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "./utils/Ownable.sol";
+import {ReentrancyGuard} from "./utils/ReentrancyGuard.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 import {IFlashLoanReceiver} from "./interfaces/IFlashLoanReceiver.sol";
@@ -20,7 +20,11 @@ import {TokenFactoryStorage} from "./TokenFactoryStorage.sol";
  */
 
 contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
+
     using SafeMath for uint256;
+
+    bytes4 private constant TRANSFER_SELECTOR = bytes4(keccak256(bytes('transfer(address,uint256)')));
+    bytes4 private constant TRANSFER_FROM_SELECTOR = bytes4(keccak256(bytes('transferFrom(address,address,uint256)')));
 
     IConvertor internal immutable i_convertor;
     GoverenceToken internal immutable i_goverenceToken;
@@ -45,50 +49,25 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
         s_ethReceiver = _ethReceiver;
     }
 
-    /* -------------------------- Add collateral data ---------------------------- */
-
-    function addMultipleCollateralData(
-        bytes32[] memory _collateralSymbols,
-        address[] memory _collateralTokens,
-        address[] memory _pricefeedAddress,
-        uint16[] memory _bonuses,
-        uint16[] memory _flashFees
-    ) external nonReentrant onlyOwner {
-        require(
-            _collateralSymbols.length == _collateralTokens.length
-                && _collateralTokens.length == _pricefeedAddress.length && _pricefeedAddress.length == _bonuses.length
-                && _bonuses.length == _flashFees.length && _flashFees.length > 0,
-            "Token factory : Invalid length of elements"
-        );
-
-        for (uint256 i = 0; i < _bonuses.length;) {
-            _addCollateralData(
-                _collateralSymbols[i], _collateralTokens[i], _pricefeedAddress[i], _bonuses[i], _flashFees[i]
-            );
-
-            unchecked {
-                i = i.add(1);
-            }
-        }
+    function _safeTransfer(address token, address to, uint value) private {
+        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(TRANSFER_SELECTOR, to, value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), "POOL : Transfer failed");
     }
 
-    function addSingleCollateralData(
+    function _safeTransferFrom(address token, address from, address to, uint value) private {
+        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(TRANSFER_FROM_SELECTOR, from, to, value));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), "POOL : Transfer from failed");
+    }
+
+    /* -------------------------- Add collateral data ---------------------------- */
+
+    function addCollateralData(
         bytes32 _collateralSymbol,
         address _collateralToken,
         address _pricefeedAddress,
         uint16 _bonus,
         uint16 _flashFee
     ) external nonReentrant onlyOwner {
-        _addCollateralData(_collateralSymbol, _collateralToken, _pricefeedAddress, _bonus, _flashFee);
-    }
-
-    function _addCollateralData(
-        bytes32 _collateralSymbol,
-        address _collateralToken,
-        address _pricefeedAddress,
-        uint16 _bonus,
-        uint16 _flashfee
-    ) private {
         require(
             s_symbolToCollateralToken[_collateralSymbol] == address(0),
             "Token factory : collateral symbol is already exist"
@@ -99,6 +78,16 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
             _collateralToken != address(0) && _pricefeedAddress != address(0), "Token factory : Invalid zero address"
         );
 
+        _addCollateralData(_collateralSymbol, _collateralToken, _pricefeedAddress, _bonus, _flashFee);
+    }
+
+    function _addCollateralData(
+        bytes32 _collateralSymbol,
+        address _collateralToken,
+        address _pricefeedAddress,
+        uint16 _bonus,
+        uint16 _flashfee
+    ) private {
         s_symbolToCollateralToken[_collateralSymbol] = _collateralToken;
         s_collateralTokenToCollateralData[_collateralToken] =
             CollateralData(0, _pricefeedAddress, _bonus, _flashfee, true);
@@ -109,19 +98,7 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
 
     /* -------------------------- Remove collateral data ----------------------------- */
 
-    function removeMultipleCollateralData(bytes32 _collateralSymbols) external nonReentrant onlyOwner {
-        require(_collateralSymbols.length > 0, "Token factory : length is zero");
-
-        for (uint256 i = 0; i < _collateralSymbols.length;) {
-            _removeCollateralData(_collateralSymbols[i]);
-
-            unchecked {
-                i = i.add(1);
-            }
-        }
-    }
-
-    function removeSingleleCollateralData(bytes32 _collateralSymbol) external nonReentrant onlyOwner {
+    function removeCollateralData(bytes32 _collateralSymbol) external nonReentrant onlyOwner {
         _removeCollateralData(_collateralSymbol);
     }
 
@@ -159,132 +136,64 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
 
     /* ------------------------ Update Collateral bonus ------------------------ */
 
-    function updateMultipleCollateralBonus(bytes32[] memory _collateralSymbols, uint16[] memory _newBonus)
-        external
-        nonReentrant
-        onlyOwner
-    {
-        require(_collateralSymbols.length == _newBonus.length && _newBonus.length > 0, "Token factory : Invalid length");
-
-        for (uint256 i = 0; i < _collateralSymbols.length;) {
-            _updateBonus(_collateralSymbols[i], _newBonus[i]);
-
-            unchecked {
-                i = i.add(1);
-            }
-        }
-    }
-
-    function updateSingleCollateralBonus(bytes32 _collateralSymbol, uint16 _newBonus) external nonReentrant onlyOwner {
-        _updateBonus(_collateralSymbol, _newBonus);
-    }
-
-    function _updateBonus(bytes32 _collateralSymbol, uint16 _newBonus) private {
+    function updateCollateralBonus(bytes32 _collateralSymbol, uint16 _newBonus) external nonReentrant onlyOwner {
         address m_collateralAddress = s_symbolToCollateralToken[_collateralSymbol];
 
         require(m_collateralAddress != address(0), "Token factory : Invalid collateral address");
         require(isCollateralDataExist(m_collateralAddress), "Token factory : collateral data not exist");
         require(_newBonus > 0, "Token factory : Invalid bonus");
 
-        s_collateralTokenToCollateralData[m_collateralAddress].bonus = _newBonus;
+        _updateBonus(m_collateralAddress, _newBonus);
+    }
+
+    function _updateBonus(address _collateralAddress, uint16 _newBonus) private {
+        s_collateralTokenToCollateralData[_collateralAddress].bonus = _newBonus;
     }
 
     /* -------------------- Update Collateral Pricefeed address ---------------------- */
 
-    function updateMultiplePricefeedAddress(bytes32[] memory _collateralSymbols, address[] memory _pricefeedAddress)
+    function updatePricefeedAddress(bytes32 _collateralSymbol, address _pricefeedAddress)
         external
         nonReentrant
         onlyOwner
     {
-        require(
-            _collateralSymbols.length == _pricefeedAddress.length && _pricefeedAddress.length > 0,
-            "Token factory : Invalid length"
-        );
-
-        for (uint256 i = 0; i < _collateralSymbols.length;) {
-            _updatepricefeedAddress(_collateralSymbols[i], _pricefeedAddress[i]);
-
-            unchecked {
-                i = i.add(1);
-            }
-        }
-    }
-
-    function updateSinglePricefeedAddress(bytes32 _collateralSymbol, address _pricefeedAddress)
-        external
-        nonReentrant
-        onlyOwner
-    {
-        _updatepricefeedAddress(_collateralSymbol, _pricefeedAddress);
-    }
-
-    function _updatepricefeedAddress(bytes32 _collateralSymbol, address _pricefeedAddress) private {
         address m_collateralAddress = s_symbolToCollateralToken[_collateralSymbol];
 
         require(m_collateralAddress != address(0), "Token factory : Invalid collateral address");
         require(isCollateralDataExist(m_collateralAddress), "Token factory : collateral data not exist");
         require(_pricefeedAddress != address(0), "Token factory : Invalid pricefeed Address");
 
-        s_collateralTokenToCollateralData[m_collateralAddress].pricefeedAddress = _pricefeedAddress;
+        _updatepricefeedAddress(m_collateralAddress, _pricefeedAddress);
+    }
+
+    function _updatepricefeedAddress(address _collateralAddress, address _pricefeedAddress) private {
+
+        s_collateralTokenToCollateralData[_collateralAddress].pricefeedAddress = _pricefeedAddress;
     }
 
     /* ------------------ Update Collateral Percentage ----------------------- */
 
-    function updateMultipleFlashFeePercentage(bytes32[] memory _collateralSymbols, uint16[] memory _flashfees)
+    function updateFlashFeePercentage(bytes32 _collateralSymbol, uint16 _flashfee)
         external
         nonReentrant
         onlyOwner
     {
-        require(
-            _collateralSymbols.length == _flashfees.length && _flashfees.length > 0, "Token factory : Invalid length"
-        );
-
-        for (uint256 i = 0; i < _collateralSymbols.length;) {
-            _updateFlashFeePercentage(_collateralSymbols[i], _flashfees[i]);
-
-            unchecked {
-                i = i.add(1);
-            }
-        }
-    }
-
-    function updateSingleFlashFeePercentage(bytes32 _collateralSymbol, uint16 _flashfee)
-        external
-        nonReentrant
-        onlyOwner
-    {
-        _updateFlashFeePercentage(_collateralSymbol, _flashfee);
-    }
-
-    function _updateFlashFeePercentage(bytes32 _collateralSymbol, uint16 _newflashfee) private {
         address m_collateralAddress = s_symbolToCollateralToken[_collateralSymbol];
 
         require(m_collateralAddress != address(0), "Token factory : Invalid collateral address");
         require(isCollateralDataExist(m_collateralAddress), "Token factory : collateral data not exist");
         require(_newflashfee > 0, "Token factory : Invalid flash fee");
 
-        s_collateralTokenToCollateralData[m_collateralAddress].flashFeePercent = _newflashfee;
+        _updateFlashFeePercentage(m_collateralAddress, _flashfee);
+    }
+
+    function _updateFlashFeePercentage(address _collateralAddress, uint16 _newflashfee) private {
+        s_collateralTokenToCollateralData[_collateralAddress].flashFeePercent = _newflashfee;
     }
 
     /* ------------------ Create Currency token contracts ------------------ */
 
-    function createMultipleCurrencyTokenContracts(string[] memory _names, string[] memory _symbols)
-        external
-        nonReentrant
-        onlyOwner
-    {
-        require(_names.length == _symbols.length && _names.length > 0, "Token factory : Invalid length");
-
-        for (uint256 i = 0; i < _names.length;) {
-            _createCurrencyTokenContract(_names[i], _symbols[i]);
-
-            unchecked {
-                i = i.add(1);
-            }
-        }
-    }
-
-    function createSingleCurrencyTokenContract(string memory _name, string memory _symbol)
+    function createCurrencyTokenContract(string memory _name, string memory _symbol)
         external
         nonReentrant
         onlyOwner
@@ -306,18 +215,6 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
     }
 
     /* ----------------- Remove Currency token contracts ---------------- */
-
-    function removeMultipleTokenContracts(bytes32[] memory _symbols) external nonReentrant onlyOwner {
-        require(_symbols.length > 0, "Token factory : length is zero");
-
-        for (uint256 i = 0; i < _symbols.length;) {
-            _removeTokenContract(_symbols[i]);
-
-            unchecked {
-                i = i.add(1);
-            }
-        }
-    }
 
     function removeSingleleTokenContracts(bytes32 _symbol) external nonReentrant onlyOwner {
         _removeTokenContract(_symbol);
@@ -385,7 +282,7 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
             "Token factory : Insufficient balance to withdraw"
         );
 
-        IERC20(_collateralToken).transfer(_to, _amount);
+        _safeTransfer(_collateralToken, _to, _amount);
     }
 
     /* -------------------- Withdraw Ethers ---------------------- */
@@ -593,14 +490,13 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
         address m_currencyTokenContact = s_symbolToCurrencyTokenContracts[_currencySymbol];
         address m_collateralTokenAddress = s_symbolToCollateralToken[_collateralSymbol];
 
-        IERC20(m_collateralTokenAddress).transferFrom(_from, address(this), _collateralAmount);
+        _safeTransferFrom(m_collateralTokenAddress, _from, address(this), _collateralAmount);
 
         (uint256 m_currencyTokensToMint, uint256 m_collateralValueInUsd, uint256 m_collateralAmount) =
             getTokenTomintForGivenCollateral(_collateralSymbol, _collateralAmount, _currencySymbol);
 
         s_totalVolumeTraded = s_totalVolumeTraded.add(m_collateralValueInUsd);
         // s_totalVolumeTraded have 18 decimals
-
         TraderData storage s_traderData = s_ownerTradedData[_from];
 
         s_traderData.totalTraded = (s_traderData.totalTraded).add(m_collateralValueInUsd);
@@ -713,7 +609,7 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
         IERC20(m_collateralTokenAddress).permit(_owner, _spender, _collateralAmount, _deadline, _v, _r, _s);
 
         // here transferFrom is called from token factory(msg.sender), so he have to maintain allowance from _owner tokens to spend
-        IERC20(m_collateralTokenAddress).transferFrom(_owner, _spender, _collateralAmount);
+        _safeTransferFrom(m_collateralTokenAddress, _owner, _spender, _collateralAmount);
 
         (uint256 m_currencyTokensToMint, uint256 m_collateralValueInUsd, uint256 m_collateralAmount) =
             getTokenTomintForGivenCollateral(_collateralSymbol, _collateralAmount, _currencySymbol);
@@ -770,8 +666,7 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
             (s_collateralTokenToCollateralData[m_collateralAddress].totalTraded).add(m_feeInTermsOfCollateral);
 
         // approve address(this) before token transfer
-        IERC20(m_collateralAddress).transferFrom(msg.sender, address(this), m_feeInTermsOfCollateral);
-
+        safeTransferFrom(m_collateralAddress, msg.sender, address(this), m_feeInTermsOfCollateral);
         require(
             _flashMintLogic(
                 _receiver,
@@ -866,7 +761,7 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
             (s_collateralTokenToCollateralData[m_collateralAddress].totalTraded).add(m_feeInTermsOfCollateral);
 
         IERC20(m_collateralAddress).permit(m_initiator, m_tokenFactory, m_feeInTermsOfCollateral, _deadline, _v, _r, _s);
-        IERC20(m_collateralAddress).transferFrom(m_initiator, m_tokenFactory, m_feeInTermsOfCollateral);
+        _safeTransferFrom(m_collateralAddress, m_initiator, m_tokenFactory, m_feeInTermsOfCollateral);
 
         require(
             _flashMintLogic(
@@ -925,9 +820,8 @@ contract TokenFactory is TokenFactoryStorage, Ownable, ReentrancyGuard {
         );
         */
 
-        ICurrencyTokenContract(_currencyTokenContact).transferFrom(
-            address(_receiver), _tokenFactory, _currencyAmountToMint
-        );
+        safeTransferFrom(_currencyTokenContact, address(_receiver), _tokenFactory, _currencyAmountToMint);
+
         // after minting approve address(this) after executing flash loan login, then tokens are transfered
         ICurrencyTokenContract(_currencyTokenContact).burnTokens(_tokenFactory, _currencyAmountToMint);
 
